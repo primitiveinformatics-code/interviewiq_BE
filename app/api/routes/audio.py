@@ -1,0 +1,81 @@
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import Response
+from pydantic import BaseModel
+import asyncio
+import tempfile
+import os
+import io
+from app.core.logging_config import get_logger
+
+router = APIRouter()
+log = get_logger("api.audio")
+
+# Lazy-loaded Whisper model (loaded once on first STT call)
+_whisper_model = None
+
+
+def _get_whisper():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        log.info("Loading faster-whisper 'base' model on CPU (first-time, may take ~30s)...")
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+        log.info("faster-whisper model ready.")
+    return _whisper_model
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "en-US-AriaNeural"
+
+
+@router.post("/tts")
+async def text_to_speech(body: TTSRequest):
+    """Convert text to speech using edge-tts. Returns MP3 audio bytes."""
+    import edge_tts
+    try:
+        audio_buf = io.BytesIO()
+        communicate = edge_tts.Communicate(body.text, body.voice)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_buf.write(chunk["data"])
+        audio_bytes = audio_buf.getvalue()
+        if not audio_bytes:
+            raise HTTPException(status_code=500, detail="TTS produced no audio")
+        log.info(f"TTS: generated {len(audio_bytes)} bytes for {len(body.text)}-char text")
+        return Response(content=audio_bytes, media_type="audio/mpeg")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"TTS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stt")
+async def speech_to_text(audio: UploadFile = File(...)):
+    """Transcribe uploaded audio to text using faster-whisper."""
+    try:
+        audio_bytes = await audio.read()
+        filename = audio.filename or "audio.wav"
+        ext = os.path.splitext(filename)[1] or ".wav"
+
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            model = _get_whisper()
+            segments, info = await asyncio.to_thread(
+                model.transcribe, tmp_path, beam_size=5
+            )
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+            log.info(f"STT: transcribed {len(audio_bytes)} bytes → '{text[:80]}'")
+            return {"text": text, "language": info.language}
+        finally:
+            os.unlink(tmp_path)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"STT error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

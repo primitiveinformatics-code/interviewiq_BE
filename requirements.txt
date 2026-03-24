@@ -1,0 +1,55 @@
+# ── Web framework ─────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+
+# ── Data validation ───────────────────────────────────────
+pydantic==2.8.2
+pydantic-settings==2.4.0
+email-validator>=2.0.0
+
+# ── Database ──────────────────────────────────────────────
+sqlalchemy==2.0.35
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+pgvector==0.3.5
+alembic==1.13.2
+
+# ── Auth / Security ───────────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==43.0.1
+
+# ── HTTP / WebSockets ─────────────────────────────────────
+python-multipart==0.0.9
+httpx==0.27.0
+websockets==11.0.3
+
+# LangChain ecosystem
+langgraph==0.2.40
+langchain==0.3.18
+langchain-openai==0.2.14
+langchain-anthropic>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-text-splitters>=0.3.0
+
+# LLM SDKs
+openai==1.58.1
+cohere>=5.0.0
+
+# ── Payments ──────────────────────────────────────────────
+razorpay>=1.4.0
+
+# ── Cache / State ─────────────────────────────────────────
+redis>=5.0.0
+
+
+
+# ── PDF / AWS ─────────────────────────────────────────────
+reportlab==4.2.2
+boto3==1.35.0
+
+# ── Frontend ──────────────────────────────────────────────
+streamlit
+faster-whisper
+edge-tts
+audio-recorder-streamlit
