@@ -12,8 +12,9 @@ PARSER_PROMPT = """Parse the provided Job Description and Resume. Extract:
 3. Top 5 topic areas to cover in the interview
 4. Domain (e.g., AI/ML, backend, telecom, SDE, system design)
 5. Candidate's strongest matching skills
+6. Candidate's full name (first name only is fine) — read from the top of the resume
 
-Return ONLY valid JSON with keys: skills, experience_level, topics, domain, strengths."""
+Return ONLY valid JSON with keys: skills, experience_level, topics, domain, strengths, candidate_name."""
 
 def parser_agent_node(state: InterviewState) -> dict:
     log.info(f"Parsing JD ({len(state['jd_text'])} chars) and Resume ({len(state['resume_text'])} chars)")

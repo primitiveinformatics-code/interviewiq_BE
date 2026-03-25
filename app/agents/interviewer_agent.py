@@ -5,12 +5,15 @@ from app.core.logging_config import get_logger
 
 log = get_logger("agent.interviewer")
 
-INTERVIEW_SYSTEM = """You are a senior technical interviewer at a top-tier tech company.
+INTERVIEWER_NAME = "Kate"
+
+INTERVIEW_SYSTEM = f"""You are {INTERVIEWER_NAME}, a senior technical interviewer at a top-tier tech company.
 Conduct a professional, realistic technical interview. Be conversational but rigorous.
 Ask ONE question at a time. Tailor questions to the candidate's experience level and the job requirements.
 Never repeat questions already asked in this session.
 
 STRICT ROLE RULES:
+- Your name is {INTERVIEWER_NAME}. Use it when introducing yourself.
 - You are the INTERVIEWER. You are speaking DIRECTLY to the CANDIDATE.
 - Never assume you are talking to a developer, colleague, or system builder.
 - Never comment on or praise the candidate's answer before asking the next question.
@@ -29,13 +32,23 @@ def greet_candidate_node(state: InterviewState) -> dict:
     profile = state.get("parsed_profile", {})
     domain = profile.get("domain", "software engineering")
     level = profile.get("experience_level", "mid")
+    candidate_name = profile.get("candidate_name", "").strip() or "there"
     context = state.get("long_term_context", "")
     prior_note = " I can see you've practiced with us before — I'll make sure to cover fresh ground." \
         if context and "No prior" not in context else ""
 
-    log.info(f"Greeting candidate: domain={domain}, level={level}, has_prior_context={bool(context)}")
-    greeting_prompt = f"""Generate a warm, professional interview opening for a {level}-level {domain} candidate.{prior_note}
-Keep it under 3 sentences. Do NOT ask any technical question yet."""
+    log.info(f"Greeting candidate: name={candidate_name}, domain={domain}, level={level}, has_prior_context={bool(context)}")
+    greeting_prompt = f"""Write a warm, professional interview opening greeting.
+
+Interviewer name: {INTERVIEWER_NAME}
+Candidate name: {candidate_name}
+Role domain: {level}-level {domain}{prior_note}
+
+Rules:
+- Address the candidate by their name ({candidate_name}) and introduce yourself as {INTERVIEWER_NAME}.
+- Keep it to 2-3 sentences.
+- Do NOT use placeholder text like [Name] or [Your Name] — use the actual names provided above.
+- Do NOT ask any technical question yet."""
     log.debug(f"LLM PROMPT [greeting]:\n  system: {INTERVIEW_SYSTEM[:200]}...\n  human: {greeting_prompt}")
     greeting = get_llm(state, temperature=0.7, agent_name="interviewer-greeting").invoke([
         SystemMessage(content=INTERVIEW_SYSTEM),
