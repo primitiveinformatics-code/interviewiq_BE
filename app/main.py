@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, text
-from app.api.routes import auth, sessions, documents, interview, reports, admin, audio, llmtest, billing, account, settings
+from app.api.routes import auth, sessions, documents, interview, reports, admin, audio, llmtest, billing, account
+from app.api.routes import settings as settings_router
 from app.core.config import settings
 from app.db.database import engine, Base, AsyncSessionLocal
 from app.db.models import Session as InterviewSession
@@ -115,7 +116,7 @@ app.include_router(admin.router,     prefix="/admin",     tags=["admin"])
 app.include_router(audio.router,     prefix="/audio",     tags=["audio"])
 app.include_router(billing.router,   prefix="/billing",   tags=["billing"])
 app.include_router(account.router,   prefix="/account",   tags=["account"])
-app.include_router(settings.router,  prefix="/settings",  tags=["settings"])
+app.include_router(settings_router.router, prefix="/settings", tags=["settings"])
 
 # llmtest endpoints are only mounted in non-production environments.
 if settings.APP_ENV != "production":

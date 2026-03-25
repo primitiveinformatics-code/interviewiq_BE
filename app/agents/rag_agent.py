@@ -28,7 +28,7 @@ def rag_retriever_node(state: InterviewState) -> dict:
             rows = db.execute(
                 text("""
                     SELECT content,
-                           (1 - (embedding <=> :emb::vector)) * 0.7
+                           (1 - (embedding <=> CAST(:emb AS vector))) * 0.7
                            + ts_rank(to_tsvector('english', content),
                                      plainto_tsquery('english', :q)) * 0.3 AS score
                     FROM corpus_chunks

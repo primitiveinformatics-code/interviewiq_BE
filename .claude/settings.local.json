@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"c:\\\\coding\\\\Interview Bot\\\\Code\\\\interviewiq_dep\\\\BE\\\\app\\\\api\\\\routes\\\\settings.py\")"
+    ]
+  }
+}
