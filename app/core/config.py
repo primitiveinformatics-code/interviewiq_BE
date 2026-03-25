@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GOOGLE_API_KEY: str = ""
 
+    # ── Hugging Face (faster-whisper model downloads) ──────────────────────
+    # Get a free token at: https://huggingface.co/settings/tokens
+    # Enables higher rate limits and avoids anonymous download throttling.
+    HF_TOKEN: str = ""
+
     # ── OpenRouter (free tier for local dev) ──────────────────────────────
     # Get key at: https://openrouter.ai/keys  (free, no credit card needed)
     OPENROUTER_API_KEY: str = ""

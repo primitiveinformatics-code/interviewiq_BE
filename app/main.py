@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, text
 from app.api.routes import auth, sessions, documents, interview, reports, admin, audio, llmtest, billing, account
+from app.api.routes.audio import warmup_whisper_model
 from app.core.config import settings
 from app.db.database import engine, Base, AsyncSessionLocal
 from app.db.models import Session as InterviewSession
@@ -87,6 +88,11 @@ async def lifespan(app: FastAPI):
     log.info("Redis connected.")
 
     asyncio.create_task(_stale_session_cleanup_loop())
+
+    # Pre-warm the Whisper model in the background so it is ready by the time
+    # the first user reaches the interview page. Uses a background task so it
+    # doesn't delay server startup or health-check responses.
+    asyncio.create_task(warmup_whisper_model())
 
     yield  # ← application runs here
 
