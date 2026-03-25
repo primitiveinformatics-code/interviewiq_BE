@@ -10,18 +10,33 @@ from app.core.logging_config import get_logger
 router = APIRouter()
 log = get_logger("api.audio")
 
-# Lazy-loaded Whisper model (loaded once on first STT call)
+# Whisper model — loaded lazily on the first STT call, inside a thread so it
+# never blocks the async event loop.
 _whisper_model = None
 
 
-def _get_whisper():
+def _load_and_transcribe(tmp_path: str) -> tuple[str, str]:
+    """Load (or reuse) the Whisper model and fully transcribe the file.
+
+    This function must be called via asyncio.to_thread so that:
+    - Model construction (heavy I/O + CTranslate2 init) never runs on the
+      event-loop thread.
+    - The segments *generator* is consumed here, inside the thread, so
+      CTranslate2 inference never executes on the event-loop thread.
+      (Iterating a CTranslate2 generator on the event loop was the root cause
+      of the worker crashes / OOM kills seen in production.)
+    """
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
         log.info("Loading faster-whisper 'base' model on CPU (first-time, may take ~30s)...")
         _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
         log.info("faster-whisper model ready.")
-    return _whisper_model
+
+    segments_gen, info = _whisper_model.transcribe(tmp_path, beam_size=5)
+    # Consume the generator fully HERE, inside the thread.
+    text = " ".join(seg.text.strip() for seg in segments_gen).strip()
+    return text, info.language
 
 
 class TTSRequest(BaseModel):
@@ -64,13 +79,11 @@ async def speech_to_text(audio: UploadFile = File(...)):
             tmp_path = tmp.name
 
         try:
-            model = _get_whisper()
-            segments, info = await asyncio.to_thread(
-                model.transcribe, tmp_path, beam_size=5
-            )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
+            # _load_and_transcribe loads the model (if needed) AND consumes
+            # the CTranslate2 generator — all inside a worker thread.
+            text, language = await asyncio.to_thread(_load_and_transcribe, tmp_path)
             log.info(f"STT: transcribed {len(audio_bytes)} bytes → '{text[:80]}'")
-            return {"text": text, "language": info.language}
+            return {"text": text, "language": language}
         finally:
             os.unlink(tmp_path)
 

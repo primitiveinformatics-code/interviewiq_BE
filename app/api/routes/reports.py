@@ -43,8 +43,13 @@ async def get_report(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid session_id: '{session_id}' is not a valid UUID")
+
     result = await db.execute(
-        select(InterviewQA).where(InterviewQA.session_id == uuid.UUID(session_id))
+        select(InterviewQA).where(InterviewQA.session_id == session_uuid)
     )
     qas = result.scalars().all()
     if not qas:
@@ -69,8 +74,13 @@ async def download_pdf_report(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid session_id: '{session_id}' is not a valid UUID")
+
     result = await db.execute(
-        select(InterviewQA).where(InterviewQA.session_id == uuid.UUID(session_id))
+        select(InterviewQA).where(InterviewQA.session_id == session_uuid)
     )
     qas = result.scalars().all()
 
