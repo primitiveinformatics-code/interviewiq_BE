@@ -10,9 +10,34 @@ from app.core.logging_config import get_logger
 router = APIRouter()
 log = get_logger("api.audio")
 
-# Whisper model — loaded once, either eagerly at startup (via warmup_whisper_model
-# called from main.py lifespan) or lazily on the first STT request.
+# Whisper model state — loaded once per worker process.
 _whisper_model = None
+_whisper_loading = False   # prevents concurrent load attempts
+
+
+def _try_lower_oom_score() -> None:
+    """Ask the Linux OOM killer to spare this process during model loading.
+
+    Writing a negative value to /proc/self/oom_score_adj makes the kernel
+    less likely to choose this process when it needs to free memory.
+    Requires CAP_SYS_RESOURCE (root in most Docker containers).
+    Fails silently when running unprivileged.
+    """
+    try:
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("-500")
+        log.info("OOM score set to -500 — process is now deprioritised for OOM kills.")
+    except OSError:
+        log.debug("Could not lower OOM score (non-root or non-Linux). Proceeding without protection.")
+
+
+def _check_available_memory_mb(required_mb: int = 300) -> int:
+    """Return available RAM in MB, or -1 if psutil is not installed."""
+    try:
+        import psutil
+        return psutil.virtual_memory().available // (1024 * 1024)
+    except ImportError:
+        return -1
 
 
 def _ensure_whisper_loaded() -> None:
@@ -28,6 +53,26 @@ def _ensure_whisper_loaded() -> None:
     global _whisper_model
     if _whisper_model is not None:
         return  # already loaded
+
+    # Lower OOM priority before allocating ~150 MB for the model.
+    _try_lower_oom_score()
+
+    # Warn early if memory looks tight (base model needs ~150 MB at runtime,
+    # up to ~300 MB transiently during loading due to double-buffering).
+    available = _check_available_memory_mb(required_mb=300)
+    if available != -1:
+        if available < 150:
+            log.error(
+                f"Only {available} MB available — Whisper base model may not load. "
+                "Consider switching to the 'tiny' model or adding swap space."
+            )
+        elif available < 300:
+            log.warning(
+                f"Only {available} MB available — model load may trigger OOM. "
+                "Proceeding; add swap or upgrade instance if this crashes."
+            )
+        else:
+            log.info(f"Memory check: {available} MB available — sufficient for model load.")
 
     from faster_whisper import WhisperModel
     from app.core.config import settings
@@ -46,17 +91,6 @@ def _ensure_whisper_loaded() -> None:
     log.info("faster-whisper model ready.")
 
 
-async def warmup_whisper_model() -> None:
-    """Pre-warm the Whisper model at app startup.
-
-    Call this from main.py lifespan so the model is ready before the first
-    user request hits the /audio/stt endpoint.
-    """
-    log.info("Pre-warming faster-whisper model in background thread…")
-    await asyncio.to_thread(_ensure_whisper_loaded)
-    log.info("faster-whisper pre-warm complete.")
-
-
 def _load_and_transcribe(tmp_path: str) -> tuple[str, str]:
     """Ensure model is loaded then fully transcribe the audio file.
 
@@ -72,6 +106,40 @@ def _load_and_transcribe(tmp_path: str) -> tuple[str, str]:
     text = " ".join(seg.text.strip() for seg in segments_gen).strip()
     return text, info.language
 
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.post("/warmup")
+async def warmup_model():
+    """Trigger background Whisper model pre-warm.
+
+    The frontend calls this once the interview session page is fully loaded
+    so the model is ready before the user speaks. Returns immediately —
+    loading happens in a background thread and does not block the response.
+    """
+    global _whisper_loading
+
+    if _whisper_model is not None:
+        return {"status": "ready"}
+
+    if _whisper_loading:
+        return {"status": "warming"}
+
+    # Start background load — only one concurrent attempt allowed.
+    _whisper_loading = True
+
+    async def _background_load():
+        global _whisper_loading
+        try:
+            await asyncio.to_thread(_ensure_whisper_loaded)
+            log.info("Whisper warmup complete (triggered by /audio/warmup).")
+        except Exception as exc:
+            log.error(f"Whisper warmup failed: {exc}")
+        finally:
+            _whisper_loading = False
+
+    asyncio.create_task(_background_load())
+    return {"status": "warming"}
 
 
 class TTSRequest(BaseModel):
