@@ -96,9 +96,9 @@ class Settings(BaseSettings):
     RAZORPAY_WEBHOOK_SECRET:     str = ""  # optional — for async payment.captured webhook
     # Prices in paise (INR × 100) or smallest currency unit
     # Override in .env to change pricing
-    RAZORPAY_1_CREDIT_AMOUNT:    int = 70000   # ₹700
-    RAZORPAY_5_CREDIT_AMOUNT:    int = 299000  # ₹2,990
-    RAZORPAY_10_CREDIT_AMOUNT:   int = 499000  # ₹4,990
+    RAZORPAY_1_CREDIT_AMOUNT:    int = 14000   # ₹140  (launch: 80% off ₹700)
+    RAZORPAY_5_CREDIT_AMOUNT:    int = 59800   # ₹598  (launch: 80% off ₹2,990)
+    RAZORPAY_10_CREDIT_AMOUNT:   int = 99800   # ₹998  (launch: 80% off ₹4,990)
     RAZORPAY_CURRENCY:           str = "INR"
 
     # ── Redis (interview session state) ───────────────────────────────────

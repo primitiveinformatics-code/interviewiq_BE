@@ -9,7 +9,7 @@ import string
 import uuid
 from typing import Optional
 from app.db.database import get_db
-from app.db.models import CorpusChunk, User, Session as InterviewSession, Coupon
+from app.db.models import CorpusChunk, User, Session as InterviewSession, Coupon, SiteSettings
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.core.embeddings import embed
@@ -380,3 +380,38 @@ async def reactivate_coupon(
         raise HTTPException(status_code=404, detail="Coupon not found")
     coupon.is_active = True
     return {"coupon_id": coupon_id, "is_active": True}
+
+
+# ── Site settings management ──────────────────────────────────────────────────
+
+class UpdateSettingsRequest(BaseModel):
+    settings: dict  # e.g. {"contact_email": "new@example.com"}
+
+
+@router.patch("/settings")
+async def update_site_settings(
+    body: UpdateSettingsRequest,
+    user_id: str = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: upsert one or more site_settings key-value pairs."""
+    for key, value in body.settings.items():
+        result = await db.execute(select(SiteSettings).where(SiteSettings.key == key))
+        row = result.scalar_one_or_none()
+        if row:
+            row.value = str(value)
+        else:
+            db.add(SiteSettings(key=key, value=str(value)))
+    await db.commit()
+    return {"updated": list(body.settings.keys())}
+
+
+@router.get("/settings")
+async def get_site_settings(
+    user_id: str = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: list all site_settings entries."""
+    result = await db.execute(select(SiteSettings))
+    rows = result.scalars().all()
+    return {row.key: row.value for row in rows}

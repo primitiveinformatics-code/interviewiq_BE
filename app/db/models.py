@@ -99,6 +99,13 @@ class Coupon(Base):
     note        = Column(String, nullable=True)                             # internal admin label
 
 
+class SiteSettings(Base):
+    """Key-value store for site-wide settings (contact info, banner text, etc.)."""
+    __tablename__ = "site_settings"
+    key   = Column(String, primary_key=True)
+    value = Column(String, nullable=False)
+
+
 class CorpusChunk(Base):
     __tablename__ = "corpus_chunks"
     chunk_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
