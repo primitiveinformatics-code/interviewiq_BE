@@ -44,6 +44,32 @@ async def _stale_session_cleanup_loop() -> None:
             log.error(f"Stale-session cleanup error: {exc}")
 
 
+def _run_alembic_migrations() -> None:
+    """Run all pending Alembic migrations (upgrade head).
+
+    Called after create_all() so that new tables are created first, then
+    existing columns are altered by migrations (e.g. vector dimension resize).
+    Runs synchronously — must not be called from the async event loop.
+    """
+    import os
+    from alembic.config import Config
+    from alembic import command
+
+    # Locate alembic.ini relative to this file: BE/app/main.py → BE/alembic.ini
+    ini_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini")
+    if not os.path.exists(ini_path):
+        log.warning(f"alembic.ini not found at {ini_path} — skipping migrations.")
+        return
+
+    try:
+        log.info("Running Alembic migrations (upgrade head)...")
+        cfg = Config(ini_path)
+        command.upgrade(cfg, "head")
+        log.info("Alembic migrations complete.")
+    except Exception as exc:
+        log.error(f"Alembic migration failed: {exc}")
+
+
 async def _init_database_with_retries(max_retries: int = 5) -> None:
     """Initialize database with retry logic for connection failures."""
     for attempt in range(max_retries):
@@ -57,6 +83,10 @@ async def _init_database_with_retries(max_retries: int = 5) -> None:
             log.info("Creating database tables...")
             Base.metadata.create_all(bind=engine)
             log.info("Database tables created.")
+
+            # Run pending migrations (e.g. vector column dimension changes).
+            # Offloaded to a thread so it doesn't block the async event loop.
+            await asyncio.to_thread(_run_alembic_migrations)
             return  # Success
         except Exception as e:
             wait_time = 2 ** attempt  # exponential backoff

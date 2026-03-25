@@ -207,7 +207,6 @@ async def interview_websocket(
             # ── Early end requested by user ───────────────────────────────────
             if action == "end":
                 log.info(f"WS EARLY END: session_id={session_id}, user requested interview end")
-                await _run_node_async("end_interview", report_agent_node, state)
                 await _run_node_async("generate_report", report_agent_node, state)
                 if not state.get("test_mode"):
                     try:
@@ -281,7 +280,6 @@ async def interview_websocket(
             end_route = route_after_evaluation(state)
             log.info(f"ROUTE [after_evaluation]: -> {end_route}")
             if end_route == "end_interview":
-                await _run_node_async("end_interview", report_agent_node, state)
                 await _run_node_async("generate_report", report_agent_node, state)
                 if not state.get("test_mode"):
                     try:
