@@ -15,11 +15,11 @@ router = APIRouter()
 
 # Hardcoded defaults — overridden by rows in the site_settings table if present.
 _CONTACT_DEFAULTS = {
-    "support_email": "support@interviewiq.app",
-    "twitter":       "",
-    "linkedin":      "",
-    "instagram":     "",
-    "discord":       "",
+    "contact_email":        "primitiveinformatics@gmail.com",
+    "contact_phone":        "+91 7907341911",
+    "contact_whatsapp":     "+91 7907341911",
+    "banner_message":       "",
+    "banner_popup_details": "",
 }
 
 
@@ -32,4 +32,16 @@ async def get_contact(db: AsyncSession = Depends(get_db)):
         )
     )
     overrides = {row.key: row.value for row in result.scalars().all()}
-    return {**_CONTACT_DEFAULTS, **overrides}
+    merged = {**_CONTACT_DEFAULTS, **overrides}
+
+    # Derive WhatsApp URL from the stored number (strip non-digit chars)
+    whatsapp_digits = "".join(c for c in merged["contact_whatsapp"] if c.isdigit())
+
+    return {
+        "email":               merged["contact_email"],
+        "phone":               merged["contact_phone"],
+        "whatsapp":            merged["contact_whatsapp"],
+        "whatsapp_url":        f"https://wa.me/{whatsapp_digits}",
+        "banner_message":      merged["banner_message"],
+        "banner_popup_details": merged["banner_popup_details"],
+    }
