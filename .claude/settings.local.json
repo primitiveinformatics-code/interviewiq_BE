@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(\"c:\\\\coding\\\\Interview Bot\\\\Code\\\\interviewiq_dep\\\\BE\\\\app\\\\api\\\\routes\\\\settings.py\")"
+      "Bash(\"c:\\\\coding\\\\Interview Bot\\\\Code\\\\interviewiq_dep\\\\BE\\\\app\\\\api\\\\routes\\\\settings.py\")",
+      "Bash(python -m alembic current)"
     ]
   }
 }
