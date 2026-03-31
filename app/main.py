@@ -83,10 +83,6 @@ async def _init_database_with_retries(max_retries: int = 5) -> None:
             log.info("Creating database tables...")
             Base.metadata.create_all(bind=engine)
             log.info("Database tables created.")
-
-            # Run pending migrations (e.g. vector column dimension changes).
-            # Offloaded to a thread so it doesn't block the async event loop.
-            await asyncio.to_thread(_run_alembic_migrations)
             return  # Success
         except Exception as e:
             wait_time = 2 ** attempt  # exponential backoff
