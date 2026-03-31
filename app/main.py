@@ -81,7 +81,7 @@ async def _init_database_with_retries(max_retries: int = 5) -> None:
             log.info("pgvector extension ready.")
 
             log.info("Creating database tables...")
-            Base.metadata.create_all(bind=engine)
+            Base.metadata.create_all(bind=engine, checkfirst=True)
             log.info("Database tables created.")
             return  # Success
         except Exception as e:
