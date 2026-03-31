@@ -80,9 +80,8 @@ async def _init_database_with_retries(max_retries: int = 5) -> None:
                 conn.commit()
             log.info("pgvector extension ready.")
 
-            log.info("Creating database tables...")
-            Base.metadata.create_all(bind=engine, checkfirst=True)
-            log.info("Database tables created.")
+            # Alembic (run before uvicorn in Dockerfile CMD) handles all
+            # table creation and migrations — no need for create_all here.
             return  # Success
         except Exception as e:
             wait_time = 2 ** attempt  # exponential backoff
