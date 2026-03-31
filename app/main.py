@@ -7,7 +7,7 @@ from sqlalchemy import select, text
 from app.api.routes import auth, sessions, documents, interview, reports, admin, audio, llmtest, billing, account
 from app.api.routes import settings as settings_router
 from app.core.config import settings
-from app.db.database import engine, Base, AsyncSessionLocal
+from app.db.database import engine, async_engine, Base, AsyncSessionLocal
 from app.db.models import Session as InterviewSession
 from app.core.logging_config import get_logger
 
@@ -124,6 +124,11 @@ async def lifespan(app: FastAPI):
     log.info("Closing Redis connection...")
     await redis_client.aclose()
     log.info("Redis closed.")
+
+    log.info("Closing database connections...")
+    await async_engine.dispose()
+    engine.dispose()
+    log.info("Database connections closed.")
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="InterviewIQ API", version="1.0.0", lifespan=lifespan)

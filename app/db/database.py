@@ -29,8 +29,23 @@ def _prepare_async_url(url: str) -> tuple[str, dict]:
 
 _async_url, _async_connect_args = _prepare_async_url(settings.DATABASE_URL)
 
-engine = create_engine(settings.SYNC_DATABASE_URL)
-async_engine = create_async_engine(_async_url, echo=False, connect_args=_async_connect_args)
+engine = create_engine(
+    settings.SYNC_DATABASE_URL,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    connect_args={'connect_timeout': 10},
+)
+async_engine = create_async_engine(
+    _async_url,
+    echo=False,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    connect_args={**_async_connect_args, 'timeout': 10},
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 AsyncSessionLocal = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
