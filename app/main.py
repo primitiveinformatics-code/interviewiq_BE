@@ -113,7 +113,10 @@ async def lifespan(app: FastAPI):
     redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=False)
     log.info("Redis connected.")
 
-    asyncio.create_task(_stale_session_cleanup_loop())
+    # Disabled to allow Railway sleep mode — stale sessions are still closed
+    # on new session creation (see sessions.py). Re-enable if you need
+    # guaranteed cleanup for long-abandoned sessions.
+    # asyncio.create_task(_stale_session_cleanup_loop())
 
     yield  # ← application runs here
 
