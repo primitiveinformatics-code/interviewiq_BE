@@ -15,7 +15,7 @@ router = APIRouter()
 
 # Hardcoded defaults — overridden by rows in the site_settings table if present.
 _CONTACT_DEFAULTS = {
-    "contact_email":        "primitiveinformatics@gmail.com",
+    "contact_email":        "admin@primitiveinformatics.in",
     "contact_phone":        "+91 7907341911",
     "contact_whatsapp":     "+91 7907341911",
     "banner_message":       "",
