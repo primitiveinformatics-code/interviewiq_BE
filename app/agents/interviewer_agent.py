@@ -50,14 +50,23 @@ Rules:
 - Do NOT use placeholder text like [Name] or [Your Name] — use the actual names provided above.
 - Do NOT ask any technical question yet."""
     log.debug(f"LLM PROMPT [greeting]:\n  system: {INTERVIEW_SYSTEM[:200]}...\n  human: {greeting_prompt}")
-    greeting = get_llm(state, temperature=0.7, agent_name="interviewer-greeting").invoke([
-        SystemMessage(content=INTERVIEW_SYSTEM),
-        HumanMessage(content=greeting_prompt)
-    ])
-    log.debug(f"LLM RESPONSE [greeting] ({len(greeting.content)} chars):\n{greeting.content}")
+    try:
+        greeting = get_llm(state, temperature=0.7, agent_name="interviewer-greeting").invoke([
+            SystemMessage(content=INTERVIEW_SYSTEM),
+            HumanMessage(content=greeting_prompt)
+        ])
+        greeting_content = greeting.content.strip() or (
+            f"Hello, {candidate_name}! I'm {INTERVIEWER_NAME}, your interviewer today. Ready to begin?"
+        )
+    except Exception as e:
+        log.error(f"Greeting LLM failed: {e}")
+        greeting_content = (
+            f"Hello, {candidate_name}! I'm {INTERVIEWER_NAME}, your interviewer today. Ready to begin?"
+        )
+    log.debug(f"LLM RESPONSE [greeting] ({len(greeting_content)} chars):\n{greeting_content}")
     return {
         "current_phase": "technical",
-        "answers": [{"role": "interviewer", "content": greeting.content, "topic": "greeting"}]
+        "answers": [{"role": "interviewer", "content": greeting_content, "topic": "greeting"}]
     }
 
 _BAD_QUESTION_STARTS = (

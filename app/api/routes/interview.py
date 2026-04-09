@@ -405,12 +405,16 @@ async def interview_websocket(
         greeting_text = ""
         for a in state.get("answers", []):
             if a.get("role") == "interviewer" and a.get("topic") == "greeting":
-                greeting_text = a.get("content", "")
+                greeting_text = a.get("content", "").strip()
                 break
 
-        if greeting_text:
+        if not greeting_text:
+            greeting_text = "Hello! I'm Kate, your interviewer today. Let's get started — please tell me a bit about yourself."
+            log.warning("WS SEND fallback greeting (greet_candidate_node returned empty)")
+        else:
             log.info(f"WS SEND greeting ({len(greeting_text)} chars)")
-            await websocket.send_json({"type": "greeting", "greeting": greeting_text})
+
+        await websocket.send_json({"type": "greeting", "greeting": greeting_text})
 
         await _set_state(session_id, state)
         log.info("WS GREETING SENT: waiting for client greeting response on next connection")
