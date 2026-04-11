@@ -109,13 +109,17 @@ async def lifespan(app: FastAPI):
     await _init_database_with_retries()
 
     log.info("Connecting to Redis...")
+    from redis.asyncio.retry import Retry
+    from redis.backoff import NoBackoff
+    import redis.exceptions as redis_exc
+
     redis_client = aioredis.from_url(
         settings.REDIS_URL,
         decode_responses=False,
-        health_check_interval=30,
         socket_keepalive=True,
         socket_connect_timeout=10,
-        retry_on_timeout=True,
+        retry=Retry(NoBackoff(), 3),
+        retry_on_error=[redis_exc.ConnectionError, redis_exc.TimeoutError],
     )
     log.info("Redis connected.")
 
