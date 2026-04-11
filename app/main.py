@@ -109,7 +109,14 @@ async def lifespan(app: FastAPI):
     await _init_database_with_retries()
 
     log.info("Connecting to Redis...")
-    redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=False)
+    redis_client = aioredis.from_url(
+        settings.REDIS_URL,
+        decode_responses=False,
+        health_check_interval=30,
+        socket_keepalive=True,
+        socket_connect_timeout=10,
+        retry_on_timeout=True,
+    )
     log.info("Redis connected.")
 
     # Disabled to allow Railway sleep mode — stale sessions are still closed
