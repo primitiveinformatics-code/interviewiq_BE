@@ -9,12 +9,29 @@ import pickle
 import uuid
 from datetime import datetime
 from sqlalchemy import select
+import redis.asyncio as aioredis
 
 from app.db.database import SessionLocal
 from app.db.models import Session as InterviewSession, InterviewQA
+from app.core.config import settings
 from app.core.logging_config import get_logger
 
 log = get_logger("core.session_utils")
+
+# Module-level singleton so this module works in Lambda (lifespan never runs there).
+_redis_client: aioredis.Redis | None = None
+
+
+async def _get_redis() -> aioredis.Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=False,
+            socket_keepalive=True,
+            socket_connect_timeout=10,
+        )
+    return _redis_client
 
 
 async def auto_close_session(session_id: str) -> None:
@@ -31,8 +48,8 @@ async def auto_close_session(session_id: str) -> None:
     # ── 1. Load Redis state ───────────────────────────────────────────────
     state: dict | None = None
     try:
-        from app.main import redis_client
-        raw = await redis_client.get(f"interview:{session_id}")
+        redis = await _get_redis()
+        raw = await redis.get(f"interview:{session_id}")
         if raw:
             state = pickle.loads(raw)
             log.info(
@@ -99,7 +116,7 @@ async def auto_close_session(session_id: str) -> None:
 
     # ── 5. Clean up Redis ─────────────────────────────────────────────────
     try:
-        from app.main import redis_client
-        await redis_client.delete(f"interview:{session_id}")
+        redis = await _get_redis()
+        await redis.delete(f"interview:{session_id}")
     except Exception as exc:
         log.warning(f"auto_close: Redis cleanup failed for {session_id}: {exc}")

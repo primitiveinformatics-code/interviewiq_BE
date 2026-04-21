@@ -1,0 +1,31 @@
+# Lambda container image for InterviewIQ resource-intensive routes:
+#   - POST /audio/stt, /audio/tts, /audio/warmup  (interviewiq-audio)
+#   - POST /reports/ideal-answer                   (interviewiq-report)
+#   - POST /interview/{id}/end-and-report          (interviewiq-report)
+#   - POST /admin/corpus/ingest                    (interviewiq-corpus)
+#
+# Build:  docker build -f Dockerfile.lambda -t interviewiq-lambda .
+# Deploy: push to ECR, then update each Lambda function's image URI.
+
+FROM public.ecr.aws/lambda/python:3.12
+
+# Install system libs needed by psycopg2 and faster-whisper's CTranslate2 backend
+RUN dnf install -y \
+    libpq-devel \
+    gcc \
+    gcc-c++ \
+    && dnf clean all
+
+# Copy and install Python dependencies
+COPY requirements-lambda.txt ${LAMBDA_TASK_ROOT}/
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements-lambda.txt
+
+# Copy Alembic config (needed by session_utils imports, even if not run at start)
+COPY alembic.ini ${LAMBDA_TASK_ROOT}/
+COPY alembic/ ${LAMBDA_TASK_ROOT}/alembic/
+
+# Copy application code
+COPY app/ ${LAMBDA_TASK_ROOT}/app/
+
+# Entry point: app.main.handler (Mangum wrapping FastAPI app)
+CMD ["app.main.handler"]

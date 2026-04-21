@@ -1,11 +1,13 @@
 import asyncio
+import json
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timezone
 import uuid
-from app.db.database import get_db
+from app.db.database import get_db, IS_LAMBDA
 from app.db.models import Session as InterviewSession, SessionMode, User
 from app.core.security import get_current_user
 from app.core.logging_config import get_logger
@@ -75,7 +77,14 @@ async def start_session(
     for old_sess in active_result.scalars().all():
         log.info(f"Auto-closing active session {old_sess.session_id} for user {user_id}")
         from app.core.session_utils import auto_close_session
-        asyncio.create_task(auto_close_session(str(old_sess.session_id)))
+        if IS_LAMBDA:
+            import boto3 as _boto3
+            _boto3.client("sqs", region_name=os.environ.get("AWS_REGION", "us-east-1")).send_message(
+                QueueUrl=os.environ["SESSION_CLEANUP_QUEUE_URL"],
+                MessageBody=json.dumps({"session_id": str(old_sess.session_id)}),
+            )
+        else:
+            asyncio.create_task(auto_close_session(str(old_sess.session_id)))
 
     # ── Create the session ──────────────────────────────────────────────────
     session = InterviewSession(

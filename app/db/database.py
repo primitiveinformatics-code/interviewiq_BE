@@ -1,8 +1,13 @@
+import os
 import re
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import NullPool
 from app.core.config import settings
+
+# True when running inside AWS Lambda (env var set automatically by the runtime)
+IS_LAMBDA = bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
 
 
 def _prepare_async_url(url: str) -> tuple[str, dict]:
@@ -29,23 +34,40 @@ def _prepare_async_url(url: str) -> tuple[str, dict]:
 
 _async_url, _async_connect_args = _prepare_async_url(settings.DATABASE_URL)
 
-engine = create_engine(
-    settings.SYNC_DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    connect_args={'connect_timeout': 10},
-)
-async_engine = create_async_engine(
-    _async_url,
-    echo=False,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    connect_args={**_async_connect_args, 'timeout': 10},
-)
+if IS_LAMBDA:
+    # Lambda: NullPool prevents connection pool exhaustion across concurrent invocations.
+    # Each invocation opens and closes its own connection; no idle connections held.
+    engine = create_engine(
+        settings.SYNC_DATABASE_URL,
+        poolclass=NullPool,
+        connect_args={'connect_timeout': 10},
+    )
+    async_engine = create_async_engine(
+        _async_url,
+        echo=False,
+        pool_size=1,
+        max_overflow=0,
+        pool_pre_ping=True,
+        connect_args={**_async_connect_args, 'timeout': 10},
+    )
+else:
+    engine = create_engine(
+        settings.SYNC_DATABASE_URL,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        connect_args={'connect_timeout': 10},
+    )
+    async_engine = create_async_engine(
+        _async_url,
+        echo=False,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        connect_args={**_async_connect_args, 'timeout': 10},
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 AsyncSessionLocal = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)

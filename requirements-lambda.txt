@@ -1,6 +1,12 @@
+# Lambda-specific requirements — same as requirements.txt with these changes:
+#   REMOVED: uvicorn[standard] (Lambda runtime replaces uvicorn)
+#   REMOVED: streamlit, audio-recorder-streamlit (UI-only, not needed in Lambda)
+#   ADDED:   mangum (ASGI adapter for API Gateway)
+#
+# faster-whisper and edge-tts are KEPT — needed for the audio Lambda function.
+
 # ── Web framework ─────────────────────────────────────────
 fastapi==0.115.0
-uvicorn[standard]==0.30.0
 mangum==0.17.0
 
 # ── Data validation ───────────────────────────────────────
@@ -43,14 +49,10 @@ razorpay>=1.4.0
 # ── Cache / State ─────────────────────────────────────────
 redis>=5.0.0
 
-
-
 # ── PDF / AWS ─────────────────────────────────────────────
 reportlab==4.2.2
 boto3==1.35.0
 
-# ── Frontend ──────────────────────────────────────────────
-streamlit
+# ── Audio (for interviewiq-audio Lambda function) ─────────
 faster-whisper
 edge-tts
-audio-recorder-streamlit

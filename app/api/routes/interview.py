@@ -2,8 +2,10 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 import asyncio
+import os
 import uuid, json, time, pickle
 from datetime import datetime
+import redis.asyncio as aioredis
 from app.agents.state import InterviewState
 from app.agents.parser_agent import parser_agent_node
 from app.agents.memory_manager_agent import load_memory_node, save_memory_node
@@ -28,11 +30,22 @@ log = get_logger("api.interview")
 # restarts and works across horizontally scaled instances.
 STATE_TTL = 3600  # 1 hour — abandoned sessions are auto-cleaned
 
+# Module-level singleton: initialized on first call, reused across warm Lambda
+# invocations and across requests on EC2. Avoids importing from app.main so
+# this module works correctly in Lambda (where lifespan never runs).
+_redis_client: aioredis.Redis | None = None
 
-async def _get_redis():
-    """Return the Redis client initialised in main.py."""
-    from app.main import redis_client
-    return redis_client
+
+async def _get_redis() -> aioredis.Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=False,
+            socket_keepalive=True,
+            socket_connect_timeout=10,
+        )
+    return _redis_client
 
 
 async def _get_state(session_id: str) -> dict | None:

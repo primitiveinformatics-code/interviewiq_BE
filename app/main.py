@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from fastapi import FastAPI
@@ -7,13 +8,16 @@ from sqlalchemy import select, text
 from app.api.routes import auth, sessions, documents, interview, reports, admin, audio, llmtest, billing, account
 from app.api.routes import settings as settings_router
 from app.core.config import settings
-from app.db.database import engine, async_engine, Base, AsyncSessionLocal
+from app.db.database import engine, async_engine, Base, AsyncSessionLocal, IS_LAMBDA
 from app.db.models import Session as InterviewSession
 from app.core.logging_config import get_logger
 
 log = get_logger("main")
 
-# ── Redis client (module-level so interview.py can import it) ─────────────────
+# ── Redis client ──────────────────────────────────────────────────────────────
+# On EC2/local: initialized in lifespan and used by interview.py via import.
+# On Lambda: interview.py and session_utils.py each use their own module-level
+# singleton — lifespan does not run in Lambda so this stays None there.
 redis_client = None
 
 
@@ -103,6 +107,14 @@ async def _init_database_with_retries(max_retries: int = 5) -> None:
 async def lifespan(app: FastAPI):
     """Startup: init database + Redis + background tasks. Shutdown: close Redis."""
     global redis_client
+
+    if IS_LAMBDA:
+        # Lambda: lifespan runs but we skip long-running init.
+        # DB and Redis are initialized lazily in interview.py / session_utils.py
+        # via their own module-level singletons on the first request.
+        yield
+        return
+
     import redis.asyncio as aioredis
 
     # Initialize database with retries
@@ -123,9 +135,9 @@ async def lifespan(app: FastAPI):
     )
     log.info("Redis connected.")
 
-    # Disabled to allow Railway sleep mode — stale sessions are still closed
-    # on new session creation (see sessions.py). Re-enable if you need
-    # guaranteed cleanup for long-abandoned sessions.
+    # Stale sessions are closed on new session creation (see sessions.py).
+    # Re-enable the loop below if you need guaranteed cleanup for long-abandoned
+    # sessions on EC2 (not applicable on Lambda — use EventBridge + cleanup Lambda).
     # asyncio.create_task(_stale_session_cleanup_loop())
 
     yield  # ← application runs here
@@ -177,3 +189,12 @@ if __name__ == "__main__":
     import uvicorn
     log.info("Starting uvicorn server on 0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ── AWS Lambda handler ────────────────────────────────────────────────────────
+# Mangum translates API Gateway HTTP API (v2) proxy events into ASGI calls.
+# lifespan="off" because Lambda init is handled by module-level singletons in
+# interview.py and session_utils.py — not by the FastAPI lifespan context.
+if IS_LAMBDA:
+    from mangum import Mangum
+    handler = Mangum(app, lifespan="off")
