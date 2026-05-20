@@ -44,6 +44,7 @@ async def _get_redis() -> aioredis.Redis:
             decode_responses=False,
             socket_keepalive=True,
             socket_connect_timeout=10,
+            ssl_cert_reqs=None,
         )
     return _redis_client
 

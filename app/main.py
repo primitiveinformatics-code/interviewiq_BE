@@ -132,6 +132,7 @@ async def lifespan(app: FastAPI):
         socket_connect_timeout=10,
         retry=Retry(NoBackoff(), 3),
         retry_on_error=[redis_exc.ConnectionError, redis_exc.TimeoutError],
+        ssl_cert_reqs=None,
     )
     log.info("Redis connected.")
 
