@@ -46,7 +46,6 @@ class Session(Base):
     # session_type: "trial" (3-question free) | "full" (paid, 15-20 questions) | "testing" (admin)
     session_type = Column(String, nullable=False, default="full")
     status       = Column(String, default="active")
-    pod_id       = Column(String)
     user         = relationship("User", back_populates="sessions")
     qa_pairs     = relationship("InterviewQA", back_populates="session")
 

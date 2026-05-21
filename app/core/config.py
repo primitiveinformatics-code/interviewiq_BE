@@ -113,13 +113,6 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
 
-    KEYCLOAK_SERVER_URL: str = "http://localhost:8080"
-    KEYCLOAK_REALM: str = "interviewiq"
-    KEYCLOAK_CLIENT_ID: str = "interviewiq-app"
-
-    K8S_NAMESPACE: str = "interviewiq"
-    SESSION_POD_IMAGE: str = "interviewiq/agent:latest"
-
     LANGCHAIN_TRACING_V2: str = "true"
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "interviewiq"

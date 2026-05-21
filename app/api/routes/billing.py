@@ -207,6 +207,10 @@ async def redeem_coupon(
     flags["redeemed_coupons"] = redeemed + [code]
     user.feature_flags = flags
 
+    # Explicit commit to prevent race conditions where the session auto-rollback
+    # could discard the credit/coupon.uses update before it reaches the DB.
+    await db.commit()
+
     return {
         "success": True,
         "credits_added": coupon.credits,

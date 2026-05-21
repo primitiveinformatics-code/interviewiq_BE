@@ -121,5 +121,9 @@ def build_interview_graph():
     return workflow.compile()
 
 
-# Singleton compiled graph — import this in your API routes
-interview_graph = build_interview_graph()
+# NOTE: The singleton below is intentionally disabled.
+# The interview WebSocket handler in api/routes/interview.py drives each agent
+# node directly (via _run_node_async) rather than through the compiled graph.
+# Building the graph at import time wastes startup time and memory for no benefit.
+# Uncomment only if you re-introduce graph-based orchestration.
+# interview_graph = build_interview_graph()

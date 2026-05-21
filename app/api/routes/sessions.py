@@ -78,11 +78,15 @@ async def start_session(
         log.info(f"Auto-closing active session {old_sess.session_id} for user {user_id}")
         from app.core.session_utils import auto_close_session
         if IS_LAMBDA:
-            import boto3 as _boto3
-            _boto3.client("sqs", region_name=os.environ.get("AWS_REGION", "us-east-1")).send_message(
-                QueueUrl=os.environ["SESSION_CLEANUP_QUEUE_URL"],
-                MessageBody=json.dumps({"session_id": str(old_sess.session_id)}),
-            )
+            queue_url = os.environ.get("SESSION_CLEANUP_QUEUE_URL")
+            if queue_url:
+                import boto3 as _boto3
+                _boto3.client("sqs", region_name=os.environ.get("AWS_REGION", "us-east-1")).send_message(
+                    QueueUrl=queue_url,
+                    MessageBody=json.dumps({"session_id": str(old_sess.session_id)}),
+                )
+            else:
+                log.warning("IS_LAMBDA=True but SESSION_CLEANUP_QUEUE_URL is not set; falling back to in-process close")
         else:
             asyncio.create_task(auto_close_session(str(old_sess.session_id)))
 
@@ -92,7 +96,6 @@ async def start_session(
         mode=body.mode,
         session_type=session_type,
         status="active",
-        pod_id=f"pod-{uuid.uuid4().hex[:8]}",
     )
     db.add(session)
     await db.flush()
@@ -100,7 +103,6 @@ async def start_session(
 
     return {
         "session_id":   str(session.session_id),
-        "pod_id":       session.pod_id,
         "mode":         session.mode,
         "session_type": session_type,
         "status":       "active",

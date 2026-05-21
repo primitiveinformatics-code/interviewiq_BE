@@ -15,7 +15,7 @@ from app.agents.rag_agent import rag_retriever_node
 from app.agents.evaluator_agent import evaluator_node
 from app.agents.report_agent import report_agent_node
 from app.agents.supervisor import route_after_answer, route_after_evaluation
-from app.db.database import SessionLocal
+from app.db.database import AsyncSessionLocal
 from app.db.models import Document, DocType, Session as InterviewSession, InterviewQA, User
 from app.core.security import get_current_user, verify_token
 from app.core.config import settings
@@ -104,32 +104,34 @@ async def _run_node_async(name: str, fn, state: dict) -> dict:
     return await asyncio.to_thread(_run_node, name, fn, state)
 
 
-def _persist_completed_session(session_id: str, state: dict, db) -> None:
+async def _persist_completed_session(session_id: str, state: dict) -> None:
     """Save scored QA pairs to interview_qa and mark the session completed."""
     saved = 0
-    for qa in state.get("answers", []):
-        if qa.get("question") and qa.get("scores"):
-            db.add(InterviewQA(
-                session_id=uuid.UUID(session_id),
-                question=qa["question"],
-                answer=qa.get("answer", ""),
-                topic=qa.get("topic", ""),
-                scores=qa.get("scores"),
-            ))
-            saved += 1
-    sess = db.execute(
-        select(InterviewSession)
-        .where(InterviewSession.session_id == uuid.UUID(session_id))
-    ).scalar_one_or_none()
-    if sess:
-        sess.status = "completed"
-        sess.ended_at = datetime.utcnow()
-    try:
-        db.commit()
-        log.info(f"Persisted {saved} QAs + marked session completed: {session_id}")
-    except Exception as exc:
-        log.error(f"DB persist failed for {session_id}: {exc}")
-        db.rollback()
+    async with AsyncSessionLocal() as db:
+        for qa in state.get("answers", []):
+            if qa.get("question") and qa.get("scores"):
+                db.add(InterviewQA(
+                    session_id=uuid.UUID(session_id),
+                    question=qa["question"],
+                    answer=qa.get("answer", ""),
+                    topic=qa.get("topic", ""),
+                    scores=qa.get("scores"),
+                ))
+                saved += 1
+        result = await db.execute(
+            select(InterviewSession)
+            .where(InterviewSession.session_id == uuid.UUID(session_id))
+        )
+        sess = result.scalar_one_or_none()
+        if sess:
+            sess.status = "completed"
+            sess.ended_at = datetime.utcnow()
+        try:
+            await db.commit()
+            log.info(f"Persisted {saved} QAs + marked session completed: {session_id}")
+        except Exception as exc:
+            log.error(f"DB persist failed for {session_id}: {exc}")
+            await db.rollback()
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
@@ -167,7 +169,6 @@ async def interview_websocket(
         return
 
     log.info(f"WS CONNECTED: session_id={session_id}")
-    db = SessionLocal()
     try:
         # ── RETURNING SESSION: answer submission ──────────────────────────────
         state = await _get_state(session_id)
@@ -227,7 +228,7 @@ async def interview_websocket(
                         await _run_node_async("save_long_term_memory", save_memory_node, state)
                     except Exception as e:
                         log.error(f"Memory save failed (non-fatal): {e}")
-                _persist_completed_session(session_id, state, db)
+                await _persist_completed_session(session_id, state)
                 scored_qas = [a for a in state.get("answers", []) if "question" in a and "scores" in a]
                 await websocket.send_json({
                     "type": "report",
@@ -303,7 +304,7 @@ async def interview_websocket(
                 else:
                     log.info("TEST MODE: skipping long-term memory save")
 
-                _persist_completed_session(session_id, state, db)
+                await _persist_completed_session(session_id, state)
                 scored_qas = [a for a in state.get("answers", []) if "question" in a and "scores" in a]
                 await websocket.send_json({
                     "type": "report",
@@ -329,52 +330,57 @@ async def interview_websocket(
             return
 
         # ── FIRST CONNECTION: initialise ──────────────────────────────────────
-        session = db.execute(
-            select(InterviewSession).where(InterviewSession.session_id == uuid.UUID(session_id))
-        ).scalar_one_or_none()
-
-        if not session:
-            log.warning(f"Session not found: {session_id}")
-            await websocket.send_json({"error": "Session not found"})
-            return
-
-        if str(session.user_id) != requesting_user_id:
-            log.warning(
-                f"WS REJECTED (forbidden): session_id={session_id}, "
-                f"owner={session.user_id}, requester={requesting_user_id}"
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(InterviewSession).where(InterviewSession.session_id == uuid.UUID(session_id))
             )
-            await websocket.send_json({"error": "Forbidden"})
-            await websocket.close(code=4003)
-            return
+            session = result.scalar_one_or_none()
 
-        jd_doc = db.execute(
-            select(Document).where(
-                Document.user_id == session.user_id,
-                Document.doc_type == DocType.jd,
-                Document.is_active == True,  # noqa: E712
+            if not session:
+                log.warning(f"Session not found: {session_id}")
+                await websocket.send_json({"error": "Session not found"})
+                return
+
+            if str(session.user_id) != requesting_user_id:
+                log.warning(
+                    f"WS REJECTED (forbidden): session_id={session_id}, "
+                    f"owner={session.user_id}, requester={requesting_user_id}"
+                )
+                await websocket.send_json({"error": "Forbidden"})
+                await websocket.close(code=4003)
+                return
+
+            jd_result = await db.execute(
+                select(Document).where(
+                    Document.user_id == session.user_id,
+                    Document.doc_type == DocType.jd,
+                    Document.is_active == True,  # noqa: E712
+                )
             )
-        ).scalar_one_or_none()
+            jd_doc = jd_result.scalar_one_or_none()
 
-        resume_doc = db.execute(
-            select(Document).where(
-                Document.user_id == session.user_id,
-                Document.doc_type == DocType.resume,
-                Document.is_active == True,  # noqa: E712
+            resume_result = await db.execute(
+                select(Document).where(
+                    Document.user_id == session.user_id,
+                    Document.doc_type == DocType.resume,
+                    Document.is_active == True,  # noqa: E712
+                )
             )
-        ).scalar_one_or_none()
+            resume_doc = resume_result.scalar_one_or_none()
 
-        if not jd_doc or not resume_doc:
-            log.warning(f"Missing documents: jd={bool(jd_doc)}, resume={bool(resume_doc)}")
-            await websocket.send_json({"error": "Please upload both JD and Resume before starting."})
-            return
+            if not jd_doc or not resume_doc:
+                log.warning(f"Missing documents: jd={bool(jd_doc)}, resume={bool(resume_doc)}")
+                await websocket.send_json({"error": "Please upload both JD and Resume before starting."})
+                return
 
-        log.info(f"Starting FRESH interview: session_id={session_id}, mode={session.mode.value}, type={session.session_type}")
+            log.info(f"Starting FRESH interview: session_id={session_id}, mode={session.mode.value}, type={session.session_type}")
 
-        # Load user's custom LLM settings if enabled
-        user_row = db.execute(
-            select(User).where(User.user_id == session.user_id)
-        ).scalar_one_or_none()
-        user_flags = (user_row.feature_flags or {}) if user_row else {}
+            # Load user's custom LLM settings if enabled
+            user_result = await db.execute(
+                select(User).where(User.user_id == session.user_id)
+            )
+            user_row = user_result.scalar_one_or_none()
+            user_flags = (user_row.feature_flags or {}) if user_row else {}
         user_openrouter_key   = user_flags.get("custom_openrouter_api_key") if user_flags.get("can_use_custom_llm") else None
         user_openrouter_model = user_flags.get("custom_openrouter_model")   if user_flags.get("can_use_custom_llm") else None
 
@@ -443,7 +449,6 @@ async def interview_websocket(
             pass
     finally:
         log.info(f"WS CLEANUP: session_id={session_id}")
-        db.close()
         try:
             await websocket.close()
         except RuntimeError:
@@ -467,55 +472,53 @@ class EndAndReportRequest(BaseModel):
 @router.post("/{session_id}/end-and-report")
 async def end_and_report(session_id: str, body: EndAndReportRequest):
     """Generate a report from accumulated Q&A when the client ends the interview early."""
-    from datetime import datetime, timezone
+    from datetime import timezone
 
     log.info(f"END-AND-REPORT: session_id={session_id}, messages_count={len(body.messages)}")
 
-    db = SessionLocal()
-    try:
-        session = db.execute(
+    async with AsyncSessionLocal() as db:
+        db_result = await db.execute(
             select(InterviewSession).where(InterviewSession.session_id == uuid.UUID(session_id))
-        ).scalar_one_or_none()
+        )
+        session = db_result.scalar_one_or_none()
         if session:
             session.status = "completed"
             session.ended_at = datetime.now(timezone.utc)
-            db.commit()
+            await db.commit()
 
-        state = await _get_state(session_id)
-        if state:
-            await _del_state(session_id)
-            answers = state.get("answers", [])
-            scores = state.get("scores", [])
-            parsed_profile = state.get("parsed_profile", {})
-            practice_mode = state.get("practice_mode", False)
-            log.info(f"END-AND-REPORT: Using Redis state ({len(answers)} answers)")
-        else:
-            answers, scores, parsed_profile, practice_mode = [], [], {}, False
-            current_question = current_topic = None
-            for msg in body.messages:
-                if msg.get("role") == "interviewer":
-                    current_question = msg.get("content", "")
-                    current_topic = msg.get("topic", "")
-                elif msg.get("role") == "candidate" and current_question:
-                    answers.append({
-                        "question": current_question,
-                        "answer": msg.get("content", ""),
-                        "topic": current_topic or "",
-                        "scores": {},
-                    })
-                    current_question = None
-            log.info(f"END-AND-REPORT: Built from client messages ({len(answers)} Q&A pairs)")
+    state = await _get_state(session_id)
+    if state:
+        await _del_state(session_id)
+        answers = state.get("answers", [])
+        scores = state.get("scores", [])
+        parsed_profile = state.get("parsed_profile", {})
+        practice_mode = state.get("practice_mode", False)
+        log.info(f"END-AND-REPORT: Using Redis state ({len(answers)} answers)")
+    else:
+        answers, scores, parsed_profile, practice_mode = [], [], {}, False
+        current_question = current_topic = None
+        for msg in body.messages:
+            if msg.get("role") == "interviewer":
+                current_question = msg.get("content", "")
+                current_topic = msg.get("topic", "")
+            elif msg.get("role") == "candidate" and current_question:
+                answers.append({
+                    "question": current_question,
+                    "answer": msg.get("content", ""),
+                    "topic": current_topic or "",
+                    "scores": {},
+                })
+                current_question = None
+        log.info(f"END-AND-REPORT: Built from client messages ({len(answers)} Q&A pairs)")
 
-        if not answers:
-            return {"report": {"aggregate_score": 0, "summary": "No questions were answered before ending."}}
+    if not answers:
+        return {"report": {"aggregate_score": 0, "summary": "No questions were answered before ending."}}
 
-        report_state = {
-            "answers": answers,
-            "scores": scores,
-            "parsed_profile": parsed_profile,
-            "practice_mode": practice_mode,
-        }
-        result = report_agent_node(report_state)
-        return {"report": result.get("final_report", {})}
-    finally:
-        db.close()
+    report_state = {
+        "answers": answers,
+        "scores": scores,
+        "parsed_profile": parsed_profile,
+        "practice_mode": practice_mode,
+    }
+    result = report_agent_node(report_state)
+    return {"report": result.get("final_report", {})}

@@ -1,3 +1,4 @@
+import json
 import secrets
 from urllib.parse import urlencode
 from datetime import timedelta
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.crypto import encrypt_content
 from app.core.security import create_access_token, create_refresh_token, verify_token, pwd_context, get_current_user
 from app.db.database import get_db
 from app.db.models import User
@@ -32,9 +34,7 @@ GITHUB_AUTH_URL    = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL   = "https://github.com/login/oauth/access_token"
 GITHUB_EMAILS_URL  = "https://api.github.com/user/emails"
 
-# Short-lived in-memory CSRF state store (fine for single-process dev;
-# swap for Redis in multi-replica production).
-_oauth_states: dict[str, str] = {}   # state_token -> provider
+_OAUTH_STATE_TTL = 600  # 10 minutes
 
 
 def _callback_uri(provider: str) -> str:
@@ -47,7 +47,9 @@ def _callback_uri(provider: str) -> str:
 async def oauth_login(provider: str):
     """Redirect the browser to the OAuth provider's consent page."""
     state = secrets.token_urlsafe(16)
-    _oauth_states[state] = provider
+    # Store in Redis so OAuth CSRF state survives across multiple workers/replicas.
+    redis = await _get_redis()
+    await redis.set(f"oauth_state:{state}", provider.encode(), ex=_OAUTH_STATE_TTL)
 
     if provider == "google":
         if not settings.GOOGLE_CLIENT_ID:
@@ -88,10 +90,14 @@ async def oauth_callback(
     """Exchange the auth code for a user email, upsert the user, issue JWTs,
     then redirect the browser to the frontend with the tokens in the query string."""
 
-    if _oauth_states.pop(state, None) != provider:
+    redis = await _get_redis()
+    stored = await redis.getdel(f"oauth_state:{state}")
+    stored_provider = stored.decode() if isinstance(stored, bytes) else stored
+    if stored_provider != provider:
         raise HTTPException(400, "Invalid or expired OAuth state — please try logging in again")
 
     email: str | None = None
+    profile_data: dict = {}
 
     async with httpx.AsyncClient(timeout=10) as client:
         if provider == "google":
@@ -108,7 +114,11 @@ async def oauth_callback(
                 headers={"Authorization": f"Bearer {tok.json()['access_token']}"},
             )
             info.raise_for_status()
-            email = info.json().get("email")
+            user_info = info.json()
+            email = user_info.get("email")
+            for key in ("name", "given_name", "family_name", "picture"):
+                if user_info.get(key):
+                    profile_data[key] = user_info[key]
 
         elif provider == "github":
             tok = await client.post(
@@ -141,10 +151,13 @@ async def oauth_callback(
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if not user:
-        user = User(email=email, oauth_provider=provider)
+        encrypted = encrypt_content(json.dumps(profile_data)) if profile_data else None
+        user = User(email=email, oauth_provider=provider, encrypted_profile=encrypted)
         db.add(user)
         await db.flush()
         await db.refresh(user)
+    elif profile_data and not user.encrypted_profile:
+        user.encrypted_profile = encrypt_content(json.dumps(profile_data))
 
     jwt_payload = {"sub": str(user.user_id), "email": email}
     qs = urlencode({
