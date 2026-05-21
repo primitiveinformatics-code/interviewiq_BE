@@ -2,10 +2,12 @@
 # Usage: .\deploy-all.ps1                 (deploys everything)
 #        .\deploy-all.ps1 -EC2Only        (git push + EC2 only)
 #        .\deploy-all.ps1 -LambdaOnly     (git push + Lambda only)
+#        .\deploy-all.ps1 -SkipCleanup    (skip disk/Docker cleanup on EC2)
 
 param(
     [switch]$EC2Only,
-    [switch]$LambdaOnly
+    [switch]$LambdaOnly,
+    [switch]$SkipCleanup
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,13 +24,17 @@ git push origin main
 if (-not $LambdaOnly) {
     Write-Host ""
     Write-Host "====== EC2 Deploy ======"
-    & "$SCRIPT_DIR\deploy-ec2.ps1" -SkipGitPush
+    $ec2Args = @("-SkipGitPush")
+    if ($SkipCleanup) { $ec2Args += "-SkipCleanup" }
+    & "$SCRIPT_DIR\deploy-ec2.ps1" @ec2Args
 }
 
 if (-not $EC2Only) {
     Write-Host ""
     Write-Host "====== Lambda Deploy ======"
-    & "$SCRIPT_DIR\deploy-lambda.ps1" -SkipGitPush
+    $lambdaArgs = @("-SkipGitPush")
+    if ($SkipCleanup) { $lambdaArgs += "-SkipCleanup" }
+    & "$SCRIPT_DIR\deploy-lambda.ps1" @lambdaArgs
 }
 
 Write-Host ""

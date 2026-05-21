@@ -86,8 +86,8 @@ def _ensure_whisper_loaded() -> None:
         except Exception as e:
             log.warning(f"HF_TOKEN login failed (non-fatal, continuing anonymously): {e}")
 
-    log.info("Loading faster-whisper 'tiny' model on CPU…")
-    _whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+    log.info("Loading faster-whisper 'small.en' model on CPU…")
+    _whisper_model = WhisperModel("small.en", device="cpu", compute_type="int8")
     log.info("faster-whisper model ready.")
 
 
